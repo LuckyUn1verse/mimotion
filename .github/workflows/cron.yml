@@ -1,4 +1,5 @@
 name: Random Cron
+
 on:
   workflow_run:
     workflows: ["刷步数"]
@@ -6,15 +7,21 @@ on:
       - completed
   workflow_dispatch:
 
+permissions:
+  contents: write
+
+concurrency:
+  group: mimotion-persist-master
+  cancel-in-progress: false
+
 jobs:
   repo-sync:
     runs-on: ubuntu-latest
     timeout-minutes: 3
     if: github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch'
     steps:
-      - uses: actions/checkout@v3
-        with:
-          token: ${{ secrets.PAT }} #此处PAT需要申请，教程详见：README
+      - uses: actions/checkout@v5
+
       - name: random cron
         run: |
           source cron_convert.sh
@@ -23,6 +30,23 @@ jobs:
           git config user.name github-actions
           git config user.email github-actions@users.noreply.github.com
           git add .
+          if git diff --cached --quiet; then
+            echo "No cron changes to persist"
+            exit 0
+          fi
           current=`TZ=Asia/Shanghai date '+%Y-%m-%d %H:%M:%S'`
-          git commit -m "[${current}] random cron trigger by ${{ github.event_name }}"
-          git push origin master
+          for attempt in 1 2 3; do
+            git fetch origin master
+            git reset --soft origin/master
+            if git diff --cached --quiet; then
+              echo "Changes already present on remote"
+              exit 0
+            fi
+            git commit -m "[${current}] random cron trigger by ${{ github.event_name }}"
+            if git push origin HEAD:master; then
+              exit 0
+            fi
+            echo "Push raced with another update; retrying"
+            sleep $((attempt * 2))
+          done
+          exit 1
