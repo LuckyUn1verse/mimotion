@@ -19,6 +19,8 @@ jobs:
     steps:
       - name: Checkout codes
         uses: actions/checkout@v5
+        with:
+          token: ${{ secrets.PAT }}
 
       - name: Update system and install zsh
         run: |
